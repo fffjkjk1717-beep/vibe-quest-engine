@@ -35,15 +35,15 @@
     --sidebar-border: 220 15% 25%;
     --sidebar-ring: 265 60% 65%;
   }
-}
 
-@layer base {
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground font-body antialiased;
   }
+
   h1, h2, h3, h4, h5, h6 {
     @apply font-display;
   }
@@ -55,16 +55,5 @@
   }
   .font-body {
     font-family: 'PT Sans', sans-serif;
-  }
-}
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-
-  body {
-    @apply bg-background text-foreground;
   }
 }
