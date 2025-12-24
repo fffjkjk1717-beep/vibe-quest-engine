@@ -48,6 +48,7 @@ export const parseAIResponse = (rawResponse: string): AIResponse => {
       special: [],
     },
     enemyIdToFight: null,
+    log: null,
   };
 
   try {
@@ -69,32 +70,34 @@ export const parseAIResponse = (rawResponse: string): AIResponse => {
         defaultResponse.actions.push({ description: '繼續探索', actionCode: 'EXPLORE' });
     }
 
-    const statusMatch = rawResponse.match(/===狀態建議===\s*([\s\S]*?)(?=\n===|$)/);
-    if (statusMatch) {
-      const statusText = statusMatch[1];
-      const healthMatch = statusText.match(/健康變動:\s*([+-]?\d+)/);
-      if (healthMatch) defaultResponse.statusChanges.healthChange = parseInt(healthMatch[1], 10);
+    const logMatch = rawResponse.match(/===日誌===\s*([\s\S]*?)(?=\n===|$)/);
+    if (logMatch) {
+        const logContent = logMatch[1].trim();
+        defaultResponse.log = logContent;
 
-      const goldMatch = statusText.match(/金幣變動:\s*([+-]?\d+)/);
-      if (goldMatch) defaultResponse.statusChanges.goldChange = parseInt(goldMatch[1], 10);
-
-      const expMatch = statusText.match(/經驗變動:\s*\+?(\d+)/);
-      if (expMatch) defaultResponse.statusChanges.expChange = parseInt(expMatch[1], 10);
-
-      const itemRegex = /(獲得|失去)\s*([a-zA-Z_]+)\s*(\d+)/g;
-      let itemMatch;
-      while ((itemMatch = itemRegex.exec(statusText)) !== null) {
-        defaultResponse.statusChanges.itemChanges.push({
-          action: itemMatch[1] === '獲得' ? 'add' : 'remove',
-          name: itemMatch[2].trim(),
-          quantity: parseInt(itemMatch[3], 10),
-        });
-      }
-
-      const specialMatch = statusText.match(/其他:\s*(.+)/);
-      if (specialMatch && !specialMatch[1].includes('無')) {
-        defaultResponse.statusChanges.special = specialMatch[1].split(/[、,\/]/).map(s => s.trim());
-      }
+        const healthMatch = logContent.match(/健康變動:\s*([+-]?\d+)/);
+        if (healthMatch) defaultResponse.statusChanges.healthChange = parseInt(healthMatch[1], 10);
+  
+        const goldMatch = logContent.match(/金幣變動:\s*([+-]?\d+)/);
+        if (goldMatch) defaultResponse.statusChanges.goldChange = parseInt(goldMatch[1], 10);
+  
+        const expMatch = logContent.match(/經驗變動:\s*\+?(\d+)/);
+        if (expMatch) defaultResponse.statusChanges.expChange = parseInt(expMatch[1], 10);
+  
+        const itemRegex = /(獲得|失去)\s*([a-zA-Z_]+)\s*(\d+)/g;
+        let itemMatch;
+        while ((itemMatch = itemRegex.exec(logContent)) !== null) {
+          defaultResponse.statusChanges.itemChanges.push({
+            action: itemMatch[1] === '獲得' ? 'add' : 'remove',
+            name: itemMatch[2].trim(),
+            quantity: parseInt(itemMatch[3], 10),
+          });
+        }
+  
+        const specialMatch = logContent.match(/其他:\s*(.+)/);
+        if (specialMatch && !specialMatch[1].includes('無')) {
+          defaultResponse.statusChanges.special = specialMatch[1].split(/[、,\/]/).map(s => s.trim());
+        }
     }
 
     const fightMatch = rawResponse.match(/===戰鬥目標===\s*([\s\S]*?)(?=\n===|$)/);
@@ -117,6 +120,7 @@ export const parseAIResponse = (rawResponse: string): AIResponse => {
         special: [],
       },
       enemyIdToFight: null,
+      log: null,
     };
   }
 };

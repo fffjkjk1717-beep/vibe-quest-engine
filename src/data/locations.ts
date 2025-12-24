@@ -1,4 +1,11 @@
-import { Location } from '@/types/game';
+export interface Location {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  icon: string; // Lucide icon name
+  dangerLevel: number;
+}
 
 export const locations: Location[] = [
   {
@@ -24,6 +31,14 @@ export const locations: Location[] = [
     color: 'from-amber-900 to-orange-800',
     icon: 'Beer',
     dangerLevel: 1,
+  },
+    {
+    id: 'slave_market',
+    name: '奴隸市場',
+    description: '一個充滿絕望與機會的灰色地帶。空氣中瀰漫著汗水和恐懼的氣味，這裡可以買到被俘虜的戰士或流亡的法師作為夥伴，但價格不菲。',
+    color: 'from-amber-800 to-stone-700',
+    icon: 'Users',
+    dangerLevel: 2,
   },
   {
     id: 'ancient_ruins',

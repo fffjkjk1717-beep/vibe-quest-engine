@@ -2,6 +2,7 @@ import { PlayerData } from '@/types/game';
 import { getLocationById } from '@/data/locations';
 import { items } from '@/data/items';
 import { ENEMIES } from '@/data/enemies';
+import { COMPANIONS } from '@/data/companions';
 
 export const buildGamePrompt = (player: PlayerData, context: string): string => {
   const location = getLocationById(player.currentLocation);
@@ -14,8 +15,13 @@ export const buildGamePrompt = (player: PlayerData, context: string): string => 
       ? player.inventory.map((item) => `${item.name} x${item.quantity}`).join('、')
       : '空空如也';
 
+  const companionStatus = player.companion
+    ? `名字：${player.companion.name}\n等級：${player.companion.level}\n生命：${player.companion.health}/${player.companion.maxHealth}\n攻擊：${player.companion.attack}　防禦：${player.companion.defense}`
+    : '無';
+
   const itemReferenceList = items.map(item => `${item.name} (ID: ${item.id})`).join('\n');
   const enemyReferenceList = ENEMIES.map(e => `${e.name} (ID: ${e.id}, 危險等級: ${e.dangerLevel})`).join('\n');
+  const companionReferenceList = COMPANIONS.map(c => `${c.name} (ID: ${c.id}, 描述: ${c.description})`).join('\n');
 
   const historySummary =
     player.storyHistory.length > 0
@@ -33,10 +39,13 @@ export const buildGamePrompt = (player: PlayerData, context: string): string => 
 金幣：${player.gold}
 背包：${inventoryList}
 
+【隊友狀態】
+${companionStatus}
+
 【目前地點】
 ${locationName} (危險等級: ${locationDanger})：${locationDescription}
 
-【最近故事（請嚴格延續前文）】
+【最近故事（請嚴格延續前文，避免重複或遺忘）】
 ${historySummary}
 
 【本次情境】
@@ -48,14 +57,22 @@ ${itemReferenceList}
 【可參考的敵人清單（觸發戰鬥時，請使用這些敵人的 ID）】
 ${enemyReferenceList}
 
+【可參考的隊友清單（僅在奴隸市場可觸發購買）】
+${companionReferenceList}
+
 【重要規則】
 1. 根據【本次情境】生成接續的故事，控制在 250-400 字。
 2. 當【本次情境】是「戰鬥」或玩家選擇了戰鬥選項 (ACTION_CODE: FIGHT) 時，請遵循以下【戰鬥流程】。
+3. 當【本次情境】是「探索」時，請在「===行動選項===」中提供 2-3 個更具體的探索方向，而非單純的「繼續探索」。
+4. 當玩家位於「奴隸市場」(ID: slave_market) 且沒有隊友時，必須在「===行動選項===」中提供購買隊友的選項。選項格式為：[花費 XXX 金幣] 購買 [隊友名字] -> ACTION_CODE: BUY_COMPANION [隊友ID] [價格]。例如: 「[花費 500 金幣] 購買奴隸戰士「克里圖斯」 -> ACTION_CODE: BUY_COMPANION slave_warrior_1 500」。
+5. 如果玩家已有隊友，則在「奴隸市場」中提供其他互動選項，例如「與奴隸販子交談」或「觀察其他奴隸」。
+6. 在戰鬥中，隊友會自動協助攻擊，你只需要在【故事】中描述隊友的行動即可，不需要在日誌中單獨列出隊友傷害。
+7. 「行動選項」的 [清晰描述] 部分，文字應精簡，盡量不超過 15 個字。
 
 【戰鬥流程】
 1. 你的任務不是描述戰鬥過程，而是選擇一個敵人讓戰鬥開始。
 2. 根據目前地點的【危險等級: ${locationDanger}】，從【可參考的敵人清單】中選擇一個危險等級最接近的敵人。
-3. 在「===故事===」部分，只需描述遭遇此敵人的情景，作為戰鬥的開場白（例如：『陰影中，一個身影浮現，空洞的眼窩鎖定了你...』）。
+3. 在「===故事===」部分，請根據【目前地點】的特性，描述遭遇此敵人的情景，並提及你的隊友（如果存在）如何準備戰鬥。
 4. 在「===戰鬥目標===」部分，僅回傳你選擇的敵人 ID。
 5. 在「===行動選項===」部分，將選項固定為「迎戰」、「逃跑」。
 
@@ -67,14 +84,14 @@ ${enemyReferenceList}
 ===行動選項===
 1. [清晰描述] -> ACTION_CODE: CUSTOM_ACTION
 2. [清晰描述] -> ACTION_CODE: CUSTOM_ACTION
-（根據情境提供 3-4 個合理選項。若觸發戰鬥，選項應為「迎戰」和「逃跑」）
+（根據情境提供 3-4 個合理選項，描述需精簡。若觸發戰鬥，選項應為「迎戰」和「逃跑」）
 
-===狀態建議===
+===日誌===
 健康變動: ±X 或 0
 金幣變動: ±X 或 0
 經驗變動: +X 或 0
 物品變動: 獲得/失去 [物品ID] 數量 (例如: 獲得 herb 1)
-其他: 無 / 死亡 / 等級提升 / 特殊旗標
+其他: 無 / 死亡 / 等級提升 / 特殊旗標 / 獲得隊友 [隊友ID]
 
 ===戰鬥目標===
 (若觸發戰鬥，請在此填寫敵人 ID，例如: goblin。若無，請填寫「無」)
@@ -114,7 +131,7 @@ export const buildFightResultPrompt = (
 - 你獲得了 ${result.expGained} 點經驗和 ${result.goldGained} 枚金幣。
 - ${lootString}
 
-請根據這個結果，生動地描述戰鬥的結局與你的勝利。`;
+請根據這個結果，生動地描述戰鬥的结局與你的勝利。`;
   }
 
   if (result.outcome === 'lose') {
@@ -122,7 +139,7 @@ export const buildFightResultPrompt = (
 【戰鬥結果】
 - 你受到了 ${result.playerDamageTaken} 點致命傷害。
 
-請根據這個結果，描述你奮力抵抗後，最終不支倒地的悲壯情景。`;
+請根據這個結果，生動描述你與 ${enemyName} 奮力搏鬥後，最終因為 [請 AI 填寫一個合適的致命攻擊或情境]，而不支倒地的悲壯情景。`;
   }
 
   return `玩家選擇逃跑，請描述成功或失敗的場景。`;

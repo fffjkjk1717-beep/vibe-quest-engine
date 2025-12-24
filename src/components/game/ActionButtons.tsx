@@ -32,9 +32,24 @@ const ActionButtons = ({ actions, onAction, isLoading, isOnCooldown, cooldownTim
       <div className="grid gap-3 sm:grid-cols-2">
         {actions.map((action, index) => (
           <motion.div key={index} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: index * 0.1 }}>
-            <Button variant="outline" className="h-auto w-full justify-start gap-3 border-border/50 bg-secondary/30 px-4 py-3 text-left transition-all hover:border-primary/50 hover:bg-primary/10" onClick={() => onAction(action)} disabled={isDisabled}>
-              {isDisabled ? <span className="text-muted-foreground">{isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Clock className="h-5 w-5" />}</span> : <span className="text-primary">{getActionIcon(action.actionCode)}</span>}
-              <span className="flex-1 text-sm">{isOnCooldown ? `冷卻中 (${cooldownTimer}s)` : action.description}</span>
+            <Button
+              variant="outline"
+              className="h-auto w-full justify-start gap-3 border-border/50 bg-secondary/30 px-4 py-3 text-left transition-all hover:border-primary/50 hover:bg-primary/10 whitespace-normal"
+              onClick={() => onAction(action)}
+              disabled={isDisabled}
+            >
+              {isLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : (
+                <span className="text-primary">{getActionIcon(action.actionCode)}</span>
+              )}
+              <span className="flex-1 text-sm">{action.description}</span>
+              {isOnCooldown && !isLoading && (
+                <div className="flex items-center text-xs text-muted-foreground">
+                  <Clock className="mr-1 h-3 w-3" />
+                  <span>{cooldownTimer}s</span>
+                </div>
+              )}
             </Button>
           </motion.div>
         ))}

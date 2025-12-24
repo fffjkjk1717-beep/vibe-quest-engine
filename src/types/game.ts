@@ -5,6 +5,17 @@ export interface InventoryItem extends Item {
   quantity: number;
 }
 
+export interface Companion {
+  id: string;
+  name: string;
+  level: number;
+  health: number;
+  maxHealth: number;
+  attack: number;
+  defense: number;
+  description: string;
+}
+
 export interface PlayerData {
   name: string;
   level: number;
@@ -15,21 +26,12 @@ export interface PlayerData {
   defense: number;
   gold: number;
   inventory: InventoryItem[];
+  equippedWeapon: string | null;
+  equippedArmor: string | null;
   currentLocation: string;
   storyHistory: string[];
   actionLog: string[];
-  // 新增裝備欄位
-  equippedWeapon: string | null;
-  equippedArmor: string | null;
-}
-
-export interface Location {
-  id: string;
-  name: string;
-  description: string;
-  color: string;
-  icon: string;
-  dangerLevel: number;
+  companion: Companion | null;
 }
 
 export interface ActionOption {
@@ -37,18 +39,15 @@ export interface ActionOption {
   actionCode: string;
 }
 
-export interface StatusChange {
-  healthChange: number;
-  goldChange: number;
-  expChange: number;
-  // itemChanges 的 name 現在代表 item ID
-  itemChanges: { action: 'add' | 'remove'; name: string; quantity: number }[];
-  special: string[];
-}
-
 export interface AIResponse {
   story: string;
   actions: ActionOption[];
-  statusChanges: StatusChange;
-  enemyIdToFight: string | null; // 新增：用於觸發戰鬥的敵人 ID
+  statusChanges: {
+    healthChange: number;
+    goldChange: number;
+    expChange: number;
+    itemChanges: { name: string; quantity: number; action: 'add' | 'remove' }[];
+    special: string[];
+  };
+  enemyIdToFight: string | null;
 }
