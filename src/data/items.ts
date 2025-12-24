@@ -1,8 +1,11 @@
 export type ItemEffect =
   | { type: 'HEAL'; amount: number }
   | { type: 'PERMANENT_STAT'; stat: 'maxHealth' | 'attack' | 'defense'; amount: number }
-  | { type: 'GUARANTEE_FLEE' } // 用於煙霧彈
-  | { type: 'DEAL_DAMAGE'; amount: number }; // 用於炸彈等攻擊性物品
+  | { type: 'GUARANTEE_FLEE' }
+  | { type: 'DEAL_DAMAGE'; amount: number }
+  | { type: 'TEMP_BUFF'; stat: 'attack' | 'defense'; amount: number; duration: number }
+  | { type: 'CURE_STATUS' }  // 解除異常狀態
+  | { type: 'ELEMENTAL_DAMAGE'; element: 'fire' | 'ice' | 'lightning'; amount: number };
 
 export type ItemStats = {
   attack?: number;
@@ -62,6 +65,50 @@ export const items: Item[] = [
     description: '充滿生命能量的種子，能永久提升最大生命值。',
     type: 'consumable',
     effect: { type: 'PERMANENT_STAT', stat: 'maxHealth', amount: 3 },
+  },
+  
+  // --- 新增戰術性消耗品 ---
+  {
+    id: 'iron_skin_potion',
+    name: '鐵皮藥水',
+    description: '服用後皮膚暫時變得如鐵般堅硬，3 回合內防禦力 +8。',
+    type: 'consumable',
+    effect: { type: 'TEMP_BUFF', stat: 'defense', amount: 8, duration: 3 },
+  },
+  {
+    id: 'berserker_potion',
+    name: '狂戰士藥劑',
+    description: '喝下後戰意沸騰，3 回合內攻擊力 +10。',
+    type: 'consumable',
+    effect: { type: 'TEMP_BUFF', stat: 'attack', amount: 10, duration: 3 },
+  },
+  {
+    id: 'antidote',
+    name: '解毒劑',
+    description: '能解除中毒、灼燒等持續傷害狀態。',
+    type: 'consumable',
+    effect: { type: 'CURE_STATUS' },
+  },
+  {
+    id: 'fire_scroll',
+    name: '火焰卷軸',
+    description: '釋放卷軸中封印的火焰魔法，對敵人造成 40 點火焰傷害。',
+    type: 'consumable',
+    effect: { type: 'ELEMENTAL_DAMAGE', element: 'fire', amount: 40 },
+  },
+  {
+    id: 'ice_scroll',
+    name: '冰霜卷軸',
+    description: '釋放刺骨的寒氣，對敵人造成 35 點冰霜傷害。',
+    type: 'consumable',
+    effect: { type: 'ELEMENTAL_DAMAGE', element: 'ice', amount: 35 },
+  },
+  {
+    id: 'lightning_scroll',
+    name: '閃電卷軸',
+    description: '召喚雷霆之力，對敵人造成 45 點雷電傷害。',
+    type: 'consumable',
+    effect: { type: 'ELEMENTAL_DAMAGE', element: 'lightning', amount: 45 },
   },
 
   // --- Weapons (武器) ---

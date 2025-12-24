@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Settings, Loader2, Menu, Trash2, Shield, Heart, Gem, Swords, Clock, Package } from 'lucide-react';
+import { Settings, Loader2, Menu, Trash2, Shield, Heart, Gem, Swords, Clock, Package, Zap, Flame, Skull } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
@@ -13,6 +13,17 @@ import { getItemById, Item } from '@/data/items';
 import { getEnemyById, Enemy } from '@/data/enemies';
 import { buildGamePrompt, buildArrivalPrompt, buildActionPrompt, buildFightResultPrompt } from '@/lib/promptTemplate';
 import { callGroqAPI, parseAIResponse } from '@/lib/groqApi';
+import { 
+  CombatEnemy, 
+  StatusEffect, 
+  ENEMY_SKILLS, 
+  getEnemyCombatStats, 
+  getPlayerCombatStats, 
+  playerAttack, 
+  enemyAttack, 
+  processStatusEffects,
+  calculateFleeChance
+} from '@/lib/combatEngine';
 import CharacterCreation from '@/components/game/CharacterCreation';
 import PlayerStatusCard from '@/components/game/PlayerStatusCard';
 import InventoryCard from '@/components/game/InventoryCard';
@@ -20,44 +31,145 @@ import ActionButtons from '@/components/game/ActionButtons';
 import LocationPanel from '@/components/game/LocationPanel';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 
 const COOLDOWN_SECONDS = 15;
 type CombatAction = 'FIGHT' | 'FLEE' | { type: 'USE_ITEM'; itemId: string };
 
-const CombatPanel = ({ enemy, playerInventory, onCombatAction, isLoading, isOnCooldown, cooldownTimer }: { enemy: Enemy, playerInventory: InventoryItem[], onCombatAction: (action: CombatAction) => void, isLoading: boolean, isOnCooldown: boolean, cooldownTimer: number }) => {
-  const combatItems = playerInventory.filter(item => item.type === 'consumable' && (item.effect?.type === 'DEAL_DAMAGE' || item.effect?.type === 'GUARANTEE_FLEE'));
+const CombatPanel = ({ 
+  enemy, 
+  playerInventory, 
+  onCombatAction, 
+  isLoading, 
+  isOnCooldown, 
+  cooldownTimer,
+  playerStatusEffects,
+  playerBuffs
+}: { 
+  enemy: CombatEnemy, 
+  playerInventory: InventoryItem[], 
+  onCombatAction: (action: CombatAction) => void, 
+  isLoading: boolean, 
+  isOnCooldown: boolean, 
+  cooldownTimer: number,
+  playerStatusEffects: StatusEffect[],
+  playerBuffs: StatusEffect[]
+}) => {
+  const combatItems = playerInventory.filter(item => 
+    item.type === 'consumable' && 
+    (item.effect?.type === 'DEAL_DAMAGE' || 
+     item.effect?.type === 'GUARANTEE_FLEE' ||
+     item.effect?.type === 'ELEMENTAL_DAMAGE' ||
+     item.effect?.type === 'TEMP_BUFF' ||
+     item.effect?.type === 'CURE_STATUS')
+  );
   const isDisabled = isLoading || isOnCooldown;
+
+  const healthPercent = (enemy.health / enemy.maxHealth) * 100;
 
   return (
     <Card className="border-destructive bg-destructive/10">
-      <CardHeader>
-        <CardTitle className="font-display text-xl text-destructive flex items-center gap-2"><Swords /> 遭遇敵人！</CardTitle>
-        <p className="text-sm text-muted-foreground pt-1">{enemy.description}</p>
+      <CardHeader className="pb-2">
+        <CardTitle className="font-display text-xl text-destructive flex items-center gap-2">
+          <Swords /> 遭遇敵人！
+        </CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold">{enemy.name}</h3>
-          <div className="flex gap-4 text-sm">
-            <span className="flex items-center gap-1"><Heart className="h-4 w-4 text-red-500" /> {enemy.health}</span>
-            <span className="flex items-center gap-1"><Shield className="h-4 w-4 text-blue-500" /> {enemy.defense}</span>
-            <span className="flex items-center gap-1"><Gem className="h-4 w-4 text-yellow-500" /> {enemy.gold.join('-')}</span>
+      <CardContent className="space-y-4">
+        {/* 敵人資訊 */}
+        <div className="space-y-2">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-bold">{enemy.name}</h3>
+            <div className="flex gap-3 text-xs">
+              <span className="flex items-center gap-1" title="暴擊率">
+                <Zap className="h-3 w-3 text-yellow-400" /> {Math.round(enemy.critChance * 100)}%
+              </span>
+              <span className="flex items-center gap-1" title="閃避率">
+                <Shield className="h-3 w-3 text-cyan-400" /> {Math.round(enemy.evasionChance * 100)}%
+              </span>
+            </div>
           </div>
+          
+          {/* 敵人血條 */}
+          <div className="space-y-1">
+            <div className="flex justify-between text-sm">
+              <span className="flex items-center gap-1"><Heart className="h-4 w-4 text-red-500" /> 生命</span>
+              <span>{enemy.health} / {enemy.maxHealth}</span>
+            </div>
+            <Progress value={healthPercent} className="h-2" />
+          </div>
+
+          {/* 敵人狀態效果 */}
+          {enemy.statusEffects.length > 0 && (
+            <div className="flex gap-1 flex-wrap">
+              {enemy.statusEffects.map((effect, i) => (
+                <Badge key={i} variant="outline" className="text-xs">
+                  {effect.name} ({effect.remainingTurns})
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
+
+        {/* 玩家狀態效果 */}
+        {(playerStatusEffects.length > 0 || playerBuffs.length > 0) && (
+          <div className="p-2 bg-background/50 rounded-md space-y-1">
+            <p className="text-xs text-muted-foreground">你的狀態：</p>
+            <div className="flex gap-1 flex-wrap">
+              {playerStatusEffects.map((effect, i) => (
+                <Badge key={`dot-${i}`} variant="destructive" className="text-xs">
+                  <Flame className="h-3 w-3 mr-1" /> {effect.name} ({effect.remainingTurns})
+                </Badge>
+              ))}
+              {playerBuffs.map((effect, i) => (
+                <Badge key={`buff-${i}`} variant="secondary" className="text-xs">
+                  <Zap className="h-3 w-3 mr-1" /> {effect.name} ({effect.remainingTurns})
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 戰鬥按鈕 */}
         <div className="grid grid-cols-3 gap-2">
           <Button onClick={() => onCombatAction('FIGHT')} disabled={isDisabled} className="w-full">
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isOnCooldown ? <Clock className="mr-2 h-4 w-4" /> : <Swords className="mr-2 h-4 w-4" />}
             {isOnCooldown ? `冷卻中 (${cooldownTimer}s)` : '迎戰'}
           </Button>
           <Popover>
-            <PopoverTrigger asChild><Button variant="outline" disabled={isDisabled || combatItems.length === 0} className="w-full"><Package className="mr-2 h-4 w-4" /> 物品</Button></PopoverTrigger>
-            <PopoverContent className="w-60">
+            <PopoverTrigger asChild>
+              <Button variant="outline" disabled={isDisabled || combatItems.length === 0} className="w-full">
+                <Package className="mr-2 h-4 w-4" /> 物品
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72">
               <div className="grid gap-4">
-                <div className="space-y-2"><h4 className="font-medium leading-none">戰鬥物品</h4><p className="text-sm text-muted-foreground">選擇要使用的物品。</p></div>
-                <div className="grid gap-2">{combatItems.map((item) => <Button key={item.id} variant="outline" onClick={() => onCombatAction({ type: 'USE_ITEM', itemId: item.id })}>{item.name} (x{item.quantity})</Button>)}</div>
+                <div className="space-y-2">
+                  <h4 className="font-medium leading-none">戰鬥物品</h4>
+                  <p className="text-sm text-muted-foreground">選擇要使用的物品。</p>
+                </div>
+                <div className="grid gap-2 max-h-48 overflow-y-auto">
+                  {combatItems.map((item) => (
+                    <Button 
+                      key={item.id} 
+                      variant="outline" 
+                      size="sm"
+                      className="justify-start text-left h-auto py-2"
+                      onClick={() => onCombatAction({ type: 'USE_ITEM', itemId: item.id })}
+                    >
+                      <div>
+                        <div className="font-medium">{item.name} (x{item.quantity})</div>
+                        <div className="text-xs text-muted-foreground">{item.description}</div>
+                      </div>
+                    </Button>
+                  ))}
+                </div>
               </div>
             </PopoverContent>
           </Popover>
-          <Button variant="outline" onClick={() => onCombatAction('FLEE')} disabled={isDisabled} className="w-full">逃跑</Button>
+          <Button variant="outline" onClick={() => onCombatAction('FLEE')} disabled={isDisabled} className="w-full">
+            逃跑
+          </Button>
         </div>
       </CardContent>
     </Card>
@@ -75,10 +187,13 @@ const Game = () => {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [currentEnemy, setCurrentEnemy] = useState<Enemy | null>(null);
-  const [currentCombatEnemy, setCurrentCombatEnemy] = useState<Enemy | null>(null);
+  const [currentCombatEnemy, setCurrentCombatEnemy] = useState<CombatEnemy | null>(null);
   const [isThrottlingEnabled, setIsThrottlingEnabled] = useState(false);
   const [isOnCooldown, setIsOnCooldown] = useState(false);
   const [cooldownTimer, setCooldownTimer] = useState(COOLDOWN_SECONDS);
+  // 新增：玩家狀態效果
+  const [playerStatusEffects, setPlayerStatusEffects] = useState<StatusEffect[]>([]);
+  const [playerBuffs, setPlayerBuffs] = useState<StatusEffect[]>([]);
 
   useEffect(() => {
     const savedPlayer = loadPlayer();
@@ -123,7 +238,31 @@ const Game = () => {
     let updatedPlayer = { ...playerData };
     if (response.enemyIdToFight && !forceUpdate) {
       const enemy = getEnemyById(response.enemyIdToFight);
-      if (enemy) { setCurrentEnemy(enemy); setCurrentCombatEnemy({ ...enemy }); setCurrentStory(response.story); setActions(response.actions); savePlayer(updatedPlayer); setPlayer(updatedPlayer); return; }
+      if (enemy) { 
+        setCurrentEnemy(enemy); 
+        // 將 Enemy 轉換為 CombatEnemy
+        const combatStats = getEnemyCombatStats(enemy.id, enemy.dangerLevel);
+        const combatEnemy: CombatEnemy = {
+          id: enemy.id,
+          name: enemy.name,
+          health: enemy.health,
+          maxHealth: enemy.health,
+          attack: enemy.attack,
+          defense: enemy.defense,
+          critChance: combatStats.critChance,
+          evasionChance: combatStats.evasionChance,
+          skills: ENEMY_SKILLS[enemy.id] || [],
+          statusEffects: [],
+        };
+        setCurrentCombatEnemy(combatEnemy); 
+        setPlayerStatusEffects([]); // 重置玩家狀態效果
+        setPlayerBuffs([]);
+        setCurrentStory(response.story); 
+        setActions(response.actions); 
+        savePlayer(updatedPlayer); 
+        setPlayer(updatedPlayer); 
+        return; 
+      }
     }
     setCurrentEnemy(null); setCurrentCombatEnemy(null);
     updatedPlayer = updatePlayerStats(updatedPlayer, response.statusChanges);
@@ -155,59 +294,160 @@ const Game = () => {
     let updatedPlayer = { ...player };
     let updatedEnemy = { ...currentCombatEnemy };
     let combatLog = "";
+    let currentPlayerEffects = [...playerStatusEffects];
+    let currentPlayerBuffs = [...playerBuffs];
+
+    // 處理玩家狀態效果（回合開始）
+    if (currentPlayerEffects.length > 0) {
+      const { damage, messages, remainingEffects } = processStatusEffects(currentPlayerEffects);
+      if (damage > 0) {
+        updatedPlayer.health -= damage;
+        messages.forEach(msg => toast({ description: msg, variant: 'destructive' }));
+        combatLog += messages.join(' ');
+      }
+      currentPlayerEffects = remainingEffects;
+    }
+
+    // 處理玩家增益效果倒數
+    currentPlayerBuffs = currentPlayerBuffs.map(b => ({ ...b, remainingTurns: b.remainingTurns - 1 })).filter(b => b.remainingTurns > 0);
+
+    // 計算玩家戰鬥屬性（包含增益）
+    const basePlayerStats = getPlayerCombatStats(updatedPlayer);
+    let playerStats = { ...basePlayerStats };
+    currentPlayerBuffs.forEach(buff => {
+      if (buff.statModifier) {
+        if (buff.statModifier.stat === 'attack') playerStats.attack += buff.statModifier.amount;
+        if (buff.statModifier.stat === 'defense') playerStats.defense += buff.statModifier.amount;
+      }
+    });
 
     if (typeof action === 'object' && action.type === 'USE_ITEM') {
       const item = getItemById(action.itemId);
       if (!item) return;
       updatedPlayer = removeFromInventory(updatedPlayer, item.id, 1);
+      
       if (item.effect?.type === 'GUARANTEE_FLEE') {
         toast({ title: '使用煙霧彈！', description: '成功逃離戰場。' });
-        setCurrentEnemy(null); setCurrentCombatEnemy(null); setActions([{ description: '繼續探索', actionCode: 'EXPLORE' }]); savePlayer(updatedPlayer); setPlayer(updatedPlayer); return;
+        setPlayerStatusEffects([]); setPlayerBuffs([]);
+        setCurrentEnemy(null); setCurrentCombatEnemy(null); 
+        setActions([{ description: '繼續探索', actionCode: 'EXPLORE' }]); 
+        savePlayer(updatedPlayer); setPlayer(updatedPlayer); 
+        return;
       }
-      if (item.effect?.type === 'DEAL_DAMAGE') {
+      
+      if (item.effect?.type === 'DEAL_DAMAGE' || item.effect?.type === 'ELEMENTAL_DAMAGE') {
         const damage = item.effect.amount;
         updatedEnemy.health -= damage;
-        toast({ title: `你使用了 ${item.name}`, description: `對 ${updatedEnemy.name} 造成 ${damage} 點傷害！` });
-        combatLog += `在戰鬥中，我使用了 ${item.name}，對 ${updatedEnemy.name} 造成了 ${damage} 點傷害。`;
+        const elementText = item.effect.type === 'ELEMENTAL_DAMAGE' ? `${item.effect.element === 'fire' ? '火焰' : item.effect.element === 'ice' ? '冰霜' : '雷電'}` : '';
+        toast({ title: `你使用了 ${item.name}`, description: `對 ${updatedEnemy.name} 造成 ${damage} 點${elementText}傷害！` });
+        combatLog += `使用了 ${item.name}，對 ${updatedEnemy.name} 造成了 ${damage} 點傷害。`;
+      }
+      
+      if (item.effect?.type === 'TEMP_BUFF') {
+        const newBuff: StatusEffect = {
+          id: item.id,
+          name: item.effect.stat === 'attack' ? '攻擊強化' : '防禦強化',
+          type: 'BUFF',
+          remainingTurns: item.effect.duration,
+          statModifier: { stat: item.effect.stat, amount: item.effect.amount },
+        };
+        currentPlayerBuffs.push(newBuff);
+        toast({ title: `你使用了 ${item.name}`, description: `${item.effect.stat === 'attack' ? '攻擊力' : '防禦力'} +${item.effect.amount}，持續 ${item.effect.duration} 回合！` });
+      }
+      
+      if (item.effect?.type === 'CURE_STATUS') {
+        currentPlayerEffects = [];
+        toast({ title: `你使用了 ${item.name}`, description: '異常狀態已解除！' });
       }
     } else if (action === 'FLEE') {
-      if (Math.random() < 0.5) { toast({ title: '逃跑成功', description: '你成功甩開了敵人！' }); setCurrentEnemy(null); setCurrentCombatEnemy(null); setActions([{ description: '繼續探索', actionCode: 'EXPLORE' }]); return; }
-      else { toast({ title: '逃跑失敗', description: '你未能逃脫，敵人發動追擊！', variant: 'destructive' }); combatLog = '我試圖逃跑但失敗了。'; }
+      const fleeChance = calculateFleeChance(player.level, currentEnemy.dangerLevel);
+      if (Math.random() < fleeChance) { 
+        toast({ title: '逃跑成功', description: '你成功甩開了敵人！' }); 
+        setPlayerStatusEffects([]); setPlayerBuffs([]);
+        setCurrentEnemy(null); setCurrentCombatEnemy(null); 
+        setActions([{ description: '繼續探索', actionCode: 'EXPLORE' }]); 
+        return; 
+      } else { 
+        toast({ title: '逃跑失敗', description: '你未能逃脫，敵人發動追擊！', variant: 'destructive' }); 
+        combatLog = '試圖逃跑但失敗了。'; 
+      }
     } else if (action === 'FIGHT') {
-      const pDmg = Math.max(1, updatedPlayer.attack - updatedEnemy.defense);
-      updatedEnemy.health -= pDmg;
-      toast({ title: '攻擊！', description: `造成 ${pDmg} 點傷害。` });
-      combatLog = `我攻擊了 ${updatedEnemy.name}，造成了 ${pDmg} 點傷害。`;
+      const attackResult = playerAttack(playerStats, updatedEnemy);
+      if (attackResult.isEvaded) {
+        toast({ description: attackResult.message });
+      } else {
+        updatedEnemy.health -= attackResult.damage;
+        toast({ 
+          title: attackResult.isCritical ? '暴擊！' : '攻擊！', 
+          description: `造成 ${attackResult.damage} 點傷害${attackResult.isCritical ? '（暴擊）' : ''}` 
+        });
+      }
+      combatLog = attackResult.message;
     }
 
+    // 檢查敵人是否死亡
     if (updatedEnemy.health <= 0) {
       const exp = currentEnemy.exp;
       const gold = Math.floor(Math.random() * (currentEnemy.gold[1] - currentEnemy.gold[0] + 1)) + currentEnemy.gold[0];
       let loot: { itemName: string; quantity: number }[] = [];
-      currentEnemy.loot.forEach(l => { if (Math.random() < l.chance) { const item = getItemById(l.itemId); if (item) { loot.push({ itemName: item.name, quantity: 1 }); updatedPlayer = addToInventory(updatedPlayer, item, 1); } } });
+      currentEnemy.loot.forEach(l => { 
+        if (Math.random() < l.chance) { 
+          const item = getItemById(l.itemId); 
+          if (item) { loot.push({ itemName: item.name, quantity: 1 }); updatedPlayer = addToInventory(updatedPlayer, item, 1); } 
+        } 
+      });
       updatedPlayer = updatePlayerStats(updatedPlayer, { healthChange: 0, expChange: exp, goldChange: gold });
       toast({ title: '戰鬥勝利！', description: `獲得 ${exp} 經驗與 ${gold} 金幣！` });
       const { player: leveledUpPlayer, didLevelUp } = checkForLevelUp(updatedPlayer);
       if (didLevelUp) toast({ title: '等級提升！' });
-      const resCtx = buildFightResultPrompt(player.name, currentEnemy.name, { outcome: 'win', playerDamageTaken: 0, enemyDamageTaken: currentEnemy.health, expGained: exp, goldGained: gold, lootGained: loot });
+      const resCtx = buildFightResultPrompt(player.name, currentEnemy.name, { outcome: 'win', playerDamageTaken: player.health - updatedPlayer.health, enemyDamageTaken: currentEnemy.health, expGained: exp, goldGained: gold, lootGained: loot });
       callAI(combatLog + " " + resCtx, leveledUpPlayer, true);
-      savePlayer(leveledUpPlayer); setPlayer(leveledUpPlayer); setCurrentEnemy(null); setCurrentCombatEnemy(null); return;
+      setPlayerStatusEffects([]); setPlayerBuffs([]);
+      savePlayer(leveledUpPlayer); setPlayer(leveledUpPlayer); setCurrentEnemy(null); setCurrentCombatEnemy(null); 
+      return;
     }
 
-    const eDmg = Math.max(1, updatedEnemy.attack - updatedPlayer.defense);
-    updatedPlayer.health -= eDmg;
-    toast({ description: `${updatedEnemy.name} 反擊，造成 ${eDmg} 點傷害！`, variant: 'destructive' });
-    combatLog += ` ${updatedEnemy.name} 反擊，使我損失了 ${eDmg} 點生命。`;
+    // 敵人回合
+    const enemyResult = enemyAttack(updatedEnemy, playerStats);
+    if (enemyResult.isEvaded) {
+      toast({ description: enemyResult.message });
+    } else {
+      updatedPlayer.health -= enemyResult.damage;
+      toast({ description: enemyResult.message, variant: 'destructive' });
+      combatLog += ` ${enemyResult.message}`;
+      
+      // 如果敵人使用了治療技能
+      if (enemyResult.skillUsed?.type === 'HEAL') {
+        updatedEnemy.health = Math.min(updatedEnemy.maxHealth, updatedEnemy.health + (enemyResult.skillUsed.healAmount || 0));
+      }
+      
+      // 如果敵人使用了防禦增益
+      if (enemyResult.statusApplied && enemyResult.skillUsed?.type === 'DEFENSE_BUFF') {
+        updatedEnemy.statusEffects = [...updatedEnemy.statusEffects, enemyResult.statusApplied];
+        updatedEnemy.defense += enemyResult.statusApplied.statModifier?.amount || 0;
+      }
+      
+      // 如果敵人對玩家施加了狀態效果
+      if (enemyResult.statusApplied && (enemyResult.skillUsed?.type === 'POISON' || enemyResult.skillUsed?.type === 'FIRE_BREATH')) {
+        currentPlayerEffects.push(enemyResult.statusApplied);
+      }
+    }
 
+    // 檢查玩家是否死亡
     if (updatedPlayer.health <= 0) {
       updatedPlayer.health = 0;
       toast({ title: '戰鬥失敗', variant: 'destructive' });
       const resCtx = buildFightResultPrompt(player.name, currentEnemy.name, { outcome: 'lose', playerDamageTaken: player.health, enemyDamageTaken: currentEnemy.health - updatedEnemy.health, expGained: 0, goldGained: 0, lootGained: null });
       callAI(combatLog + " " + resCtx, updatedPlayer, true);
-      savePlayer(updatedPlayer); setPlayer(updatedPlayer); setCurrentEnemy(null); setCurrentCombatEnemy(null); return;
+      setPlayerStatusEffects([]); setPlayerBuffs([]);
+      savePlayer(updatedPlayer); setPlayer(updatedPlayer); setCurrentEnemy(null); setCurrentCombatEnemy(null); 
+      return;
     }
+    
+    setPlayerStatusEffects(currentPlayerEffects);
+    setPlayerBuffs(currentPlayerBuffs);
     setPlayer(updatedPlayer); setCurrentCombatEnemy(updatedEnemy); savePlayer(updatedPlayer);
-  }, [player, currentCombatEnemy, currentEnemy, callAI, isOnCooldown, toast]);
+  }, [player, currentCombatEnemy, currentEnemy, callAI, isOnCooldown, toast, playerStatusEffects, playerBuffs]);
 
   const handleLocationChange = useCallback((locationId: string) => {
     if (!player || player.currentLocation === locationId || isOnCooldown) return;
@@ -291,7 +531,7 @@ const Game = () => {
           </Card>
         </div>
         {currentCombatEnemy ? (
-          <CombatPanel enemy={currentCombatEnemy} playerInventory={player.inventory} onCombatAction={handleCombatAction} isLoading={isLoading} isOnCooldown={isOnCooldown} cooldownTimer={cooldownTimer} />
+          <CombatPanel enemy={currentCombatEnemy} playerInventory={player.inventory} onCombatAction={handleCombatAction} isLoading={isLoading} isOnCooldown={isOnCooldown} cooldownTimer={cooldownTimer} playerStatusEffects={playerStatusEffects} playerBuffs={playerBuffs} />
         ) : (
           <ActionButtons actions={actions} onAction={handleAction} isLoading={isLoading} isOnCooldown={isOnCooldown} cooldownTimer={cooldownTimer} />
         )}
