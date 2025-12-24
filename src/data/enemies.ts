@@ -14,6 +14,10 @@ export interface Enemy {
   gold: [min: number, max: number]; // 擊敗後獲得的金幣範圍
   loot: EnemyLoot[]; // 戰利品表
   dangerLevel: number; // 危險等級，用於配對地點
+  // 新增戰鬥屬性（可選，預設由 combatEngine 計算）
+  critChance?: number;   // 暴擊率
+  evasionChance?: number; // 閃避率
+  hasSkills?: boolean;    // 是否有特殊技能
 }
 
 export const ENEMIES: Enemy[] = [
